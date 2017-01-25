@@ -12,6 +12,7 @@
 #include "dlib/image_processing/remove_unobtainable_rectangles.h"
 #include "serialize_object_detector.h"
 #include "dlib/svm.h"
+#include <dlib/data_io.h>
 
 
 namespace dlib
@@ -308,6 +309,32 @@ namespace dlib
             final_upsampling_amount = upsample_amount;
 
         return test_simple_object_detector_with_images(images, final_upsampling_amount, boxes, ignore, detector);
+    }
+
+// ----------------------------------------------------------------------------------------
+
+    inline void save_detection_results (
+        const std::vector<dlib::rectangle> dets,
+        const std::string& image_filename,
+        const std::string& output_filename
+    )
+    {
+        image_dataset_metadata::dataset data;
+        data.name = output_filename;
+
+        image_dataset_metadata::image img;
+        img.filename = image_filename;
+
+        for (unsigned long i = 0; i < dets.size(); ++i)
+        {
+            image_dataset_metadata::box box;
+            box.rect = dets[i];
+            img.boxes.push_back(box);
+        }
+
+        data.images.push_back(img);
+
+        save_image_dataset_metadata(data, output_filename);
     }
 
 // ----------------------------------------------------------------------------------------

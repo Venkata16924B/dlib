@@ -308,6 +308,8 @@ ensures \n\
                  for test_object_detection_function() for a detailed definition of these \n\
                  metrics. "
     );
+
+    def("save_detection_results", save_detection_results, (arg("dets"),arg("image_filename"), arg("output_filename")), "Save detection results.");
     {
     typedef simple_object_detector type;
     class_<type>("fhog_object_detector",
