@@ -444,8 +444,8 @@ int resample_dataset(const command_line_parser& parser)
         const rectangle rect = data.images[i].boxes[0].rect;
 
         const double resampling_factor = obj_size / (double)(rect.width() * rect.height());
-        const size_t original_img_width = 560; // MANDATORY CUSTOM VALUE
-        const size_t original_img_height = 694; // MANDATORY CUSTOM VALUE
+        const size_t original_img_width = img.nc();
+        const size_t original_img_height = img.nr();
         const double width_to_height_ratio = original_img_width / (double)(original_img_height);
         const double image_area = resampling_factor * (original_img_width * original_img_height);
 
