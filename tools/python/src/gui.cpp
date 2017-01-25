@@ -4,7 +4,7 @@
 #include <boost/python/args.hpp>
 #include <dlib/geometry.h>
 #include <dlib/image_processing/frontal_face_detector.h>
-#include <dlib/image_processing/render_face_detections.h>
+#include <dlib/image_processing/render_detections_parts.h>
 #include <dlib/gui_widgets.h>
 #include "simple_object_detector_py.h"
 
@@ -70,7 +70,7 @@ void add_overlay_parts (
     const rgb_pixel& color
 )
 {
-    win.add_overlay(render_face_detections(detection, color));
+    win.add_overlay(render_detections_parts(detection, color));
 }
 
 boost::shared_ptr<image_window> make_image_window_from_image(object img)
