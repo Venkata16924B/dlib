@@ -3,16 +3,17 @@
 #ifndef DLIB_SIMPLE_ObJECT_DETECTOR_H__
 #define DLIB_SIMPLE_ObJECT_DETECTOR_H__
 
-#include "dlib/image_processing/object_detector.h"
+#include "dlib/image_processing.h"
 #include "dlib/string.h"
-#include "dlib/image_processing/scan_fhog_pyramid.h"
 #include "dlib/svm/structural_object_detection_trainer.h"
 #include "dlib/geometry.h"
 #include "dlib/data_io/load_image_dataset.h"
-#include "dlib/image_processing/remove_unobtainable_rectangles.h"
 #include "serialize_object_detector.h"
 #include "dlib/svm.h"
 #include <dlib/data_io.h>
+
+#include <sstream>
+#include <iomanip>
 
 
 namespace dlib
@@ -314,27 +315,35 @@ namespace dlib
 // ----------------------------------------------------------------------------------------
 
     inline void save_detection_results (
-        const std::vector<dlib::rectangle> dets,
-        const std::string& image_filename,
-        const std::string& output_filename
+        const full_object_detection fod,
+        const std::string& image_path
     )
     {
+        std::size_t last_slash_pos = image_path.find_last_of("/\\");
+        std::string image_filename = image_path.substr(last_slash_pos + 1);
+        std::string output_file_path = image_path + "_detection_results.xml";
+
         image_dataset_metadata::dataset data;
-        data.name = output_filename;
+        data.name = output_file_path.substr(last_slash_pos + 1);
 
         image_dataset_metadata::image img;
         img.filename = image_filename;
 
-        for (unsigned long i = 0; i < dets.size(); ++i)
+        rectangle rect = fod.get_rect();
+        image_dataset_metadata::box box;
+        box.rect = rect;
+        for (unsigned int i = 0; i < fod.num_parts(); ++i)
         {
-            image_dataset_metadata::box box;
-            box.rect = dets[i];
-            img.boxes.push_back(box);
+            std::stringstream ss;
+            ss << std::setw(2) << std::setfill('0') << i;
+            std::string part_name = ss.str();
+            box.parts.insert(std::pair<std::string,point>(part_name, fod.part(i)));
         }
+        img.boxes.push_back(box);
 
         data.images.push_back(img);
 
-        save_image_dataset_metadata(data, output_filename);
+        save_image_dataset_metadata(data, output_file_path);
     }
 
 // ----------------------------------------------------------------------------------------
