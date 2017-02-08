@@ -4,10 +4,11 @@
 #define DLIB_SIMPLE_ObJECT_DETECTOR_H__
 
 #include "dlib/image_processing.h"
+#include "dlib/image_transforms.h"
 #include "dlib/string.h"
 #include "dlib/svm/structural_object_detection_trainer.h"
 #include "dlib/geometry.h"
-#include "dlib/data_io/load_image_dataset.h"
+#include "dlib/data_io.h"
 #include "serialize_object_detector.h"
 #include "dlib/svm.h"
 #include <dlib/data_io.h>
@@ -316,18 +317,19 @@ namespace dlib
 
     inline void save_detection_results (
         const full_object_detection fod,
-        const std::string& image_path
+        const std::string& image_path,
+        const std::string& output_image_dir
     )
     {
         std::size_t last_slash_pos = image_path.find_last_of("/\\");
         std::string image_filename = image_path.substr(last_slash_pos + 1);
-        std::string output_file_path = image_path + "_detection_results.xml";
+        std::string output_xml_file_path = image_path + "_detection_results.xml";
 
         image_dataset_metadata::dataset data;
-        data.name = output_file_path.substr(last_slash_pos + 1);
+        data.name = output_xml_file_path.substr(last_slash_pos + 1);
 
-        image_dataset_metadata::image img;
-        img.filename = image_filename;
+        image_dataset_metadata::image dimg;
+        dimg.filename = image_filename;
 
         rectangle rect = fod.get_rect();
         image_dataset_metadata::box box;
@@ -339,11 +341,45 @@ namespace dlib
             std::string part_name = ss.str();
             box.parts.insert(std::pair<std::string,point>(part_name, fod.part(i)));
         }
-        img.boxes.push_back(box);
+        dimg.boxes.push_back(box);
 
-        data.images.push_back(img);
+        data.images.push_back(dimg);
 
-        save_image_dataset_metadata(data, output_file_path);
+        save_image_dataset_metadata(data, output_xml_file_path);
+
+        if (fod.num_parts() > 2)
+        {
+            point p = fod.part(0);
+            std::size_t minx = p.x();
+            std::size_t maxx = p.x();
+            std::size_t miny = p.y();
+            std::size_t maxy = p.y();
+            for (unsigned int i = 1; i < fod.num_parts(); ++i)
+            {
+                p = fod.part(i);
+                if (p.x() < minx)
+                    minx = p.x();
+                if (p.x() > maxx)
+                    maxx = p.x();
+                if (p.y() < miny)
+                    miny = p.y();
+                if (p.y() > maxy)
+                    maxy = p.y();
+            }
+
+            std::size_t chip_height = maxy - miny;
+            std::size_t chip_width = maxx - minx;
+            if (chip_height > 0 && chip_width > 0)
+            {
+                array2d<rgb_pixel> img, chip;
+                load_image(img, image_path);
+                extract_image_chip(img, chip_details(rectangle(minx, miny, maxx, maxy), chip_dims(chip_height, chip_width)), chip);
+
+                std::string output_image_path = output_image_dir + image_filename.insert(image_filename.length() - 4, "_CROPPED");
+                const int JPEG_QUALITY = 90;
+                save_jpeg(chip, output_image_path, JPEG_QUALITY);
+            }
+        }
     }
 
 // ----------------------------------------------------------------------------------------
