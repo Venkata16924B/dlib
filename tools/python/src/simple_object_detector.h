@@ -11,7 +11,6 @@
 #include "dlib/data_io.h"
 #include "serialize_object_detector.h"
 #include "dlib/svm.h"
-#include <dlib/data_io.h>
 
 #include <sstream>
 #include <iomanip>
@@ -317,8 +316,7 @@ namespace dlib
 
     inline void save_detection_results (
         const full_object_detection fod,
-        const std::string& image_path,
-        const std::string& output_image_dir
+        const std::string& image_path
     )
     {
         std::size_t last_slash_pos = image_path.find_last_of("/\\");
@@ -346,6 +344,32 @@ namespace dlib
         data.images.push_back(dimg);
 
         save_image_dataset_metadata(data, output_xml_file_path);
+    }
+
+// ----------------------------------------------------------------------------------------
+
+    inline void crop_image (
+        const std::string& image_path,
+        const std::string& output_image_dir
+    )
+    {
+        std::size_t last_slash_pos = image_path.find_last_of("/\\");
+        std::string image_filename = image_path.substr(last_slash_pos + 1);
+        // We assume the *_detection_results.xml file exists
+        std::string xml_file_path = image_path + "_detection_results.xml";
+
+        image_dataset_metadata::dataset data;
+        load_image_dataset_metadata(data, xml_file_path);
+
+        // We assume there is one image containing one box
+        image_dataset_metadata::box box = data.images[0].boxes[0];
+        std::vector<point> parts;
+        std::map<std::string,point>::iterator it;
+        for (it = box.parts.begin(); it != box.parts.end(); ++it)
+        {
+            parts.push_back(it->second);
+        }
+        full_object_detection fod = full_object_detection(box.rect, parts);
 
         if (fod.num_parts() > 2)
         {
