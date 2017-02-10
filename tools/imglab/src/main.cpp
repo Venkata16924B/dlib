@@ -1,4 +1,3 @@
-
 #include "dlib/data_io.h"
 #include "dlib/string.h"
 #include "metadata_editor.h"
@@ -413,20 +412,27 @@ int resample_dataset(const command_line_parser& parser)
     }
 
     const size_t obj_size = get_option(parser,"cropped-object-size",100*100); 
-    const double margin_scale =  get_option(parser,"crop-size",2.5);  // not used
-    const unsigned long min_object_size = get_option(parser,"min-object-size",1); // not used
-    const bool one_object_per_image = parser.option("one-object-per-image");  // not used
+    const double margin_scale =  get_option(parser,"crop-size",2.5); // cropped image will be this times wider than the object.
+    const unsigned long min_object_size = get_option(parser,"min-object-size",1);
+    const bool one_object_per_image = parser.option("one-object-per-image");
 
     dlib::image_dataset_metadata::dataset data, resampled_data;
     std::ostringstream sout;
     sout << "\nThe --resample parameters which generated this dataset were:" << endl;
     sout << "   cropped-object-size: "<< obj_size << endl;
+    sout << "   crop-size: "<< margin_scale << endl;
+    sout << "   min-object-size: "<< min_object_size << endl;
+    if (one_object_per_image)
+        sout << "   one_object_per_image: true" << endl;
     resampled_data.comment = data.comment + sout.str();
     resampled_data.name = data.name + " RESAMPLED";
 
     load_image_dataset_metadata(data, parser[0]);
     locally_change_current_dir chdir(get_parent_directory(file(parser[0])));
     dlib::rand rnd;
+
+    const size_t image_size = std::round(std::sqrt(obj_size*margin_scale*margin_scale));
+    const chip_dims cdims(image_size, image_size);
 
     console_progress_indicator pbar(data.images.size());
     for (unsigned long i = 0; i < data.images.size(); ++i)
@@ -440,48 +446,63 @@ int resample_dataset(const command_line_parser& parser)
         load_image(img, data.images[i].filename);
 
 
-        // we assume all images have one and only one non-ignored and big enough box
-        const rectangle rect = data.images[i].boxes[0].rect;
-
-        const double resampling_factor = obj_size / (double)(rect.width() * rect.height());
-        const size_t original_img_width = img.nc();
-        const size_t original_img_height = img.nr();
-        const double width_to_height_ratio = original_img_width / (double)(original_img_height);
-        const double image_area = resampling_factor * (original_img_width * original_img_height);
-
-        const size_t image_height = std::round(std::sqrt(image_area/width_to_height_ratio) + 0.5);
-        const size_t image_width = std::round(image_area/image_height + 0.5);
-        const chip_dims cdims(image_height, image_width);
-
-        const rectangle crop_rect = rectangle(0, 0, original_img_width, original_img_height);
-
-        const rectangle_transform tform = get_mapping_to_chip(chip_details(crop_rect, cdims));
-        extract_image_chip(img, chip_details(crop_rect, cdims), chip);
-
-        image_dataset_metadata::image dimg;
-
-        image_dataset_metadata::box box = data.images[i].boxes[0];
-        box.rect = tform(box.rect);
-        for (auto&& p : box.parts)
-            p.second = tform.get_tform()(p.second);
-        dimg.boxes.push_back(box);
-
-        // Put a 64bit hash of the image data into the name to make sure there are no
-        // file name conflicts.
-        std::ostringstream sout;
-        sout << hex << murmur_hash3_128bit(&chip[0][0], chip.size()*sizeof(chip[0][0])).second;
-        dimg.filename = data.images[i].filename + "_RESAMPLED_"+sout.str()+".png";
-
-        if (parser.option("jpg"))
+        // figure out what chips we want to take from this image
+        for (unsigned long j = 0; j < data.images[i].boxes.size(); ++j)
         {
-            dimg.filename = to_jpg_name(dimg.filename);
-            save_jpeg(chip,dimg.filename, JPEG_QUALITY);
+            const rectangle rect = data.images[i].boxes[j].rect;
+            if (data.images[i].boxes[j].ignore || rect.area() < min_object_size)
+                continue;
+
+            const auto max_dim = std::max(rect.width(), rect.height());
+
+            const double rand_scale_perturb = 1 - 0.3*(rnd.get_random_double()-0.5);
+            const rectangle crop_rect = centered_rect(rect, max_dim*margin_scale*rand_scale_perturb, max_dim*margin_scale*rand_scale_perturb);
+
+            const rectangle_transform tform = get_mapping_to_chip(chip_details(crop_rect, cdims));
+            extract_image_chip(img, chip_details(crop_rect, cdims), chip);
+
+            image_dataset_metadata::image dimg;
+            // Now transform the boxes to the crop and also mark them as ignored if they
+            // have already been cropped out or are outside the crop.
+            for (size_t k = 0; k < data.images[i].boxes.size(); ++k)
+            {
+                image_dataset_metadata::box box = data.images[i].boxes[k];
+                // ignore boxes outside the cropped image
+                if (crop_rect.intersect(box.rect).area() == 0)
+                    continue;
+
+                // mark boxes we include in the crop as ignored.  Also mark boxes that
+                // aren't totally within the crop as ignored.
+                if (crop_rect.contains(grow_rect(box.rect,10)) && (!one_object_per_image || k==j))
+                    data.images[i].boxes[k].ignore = true;
+                else
+                    box.ignore = true;
+
+                if (box.rect.area() < min_object_size)
+                    box.ignore = true;
+
+                box.rect = tform(box.rect);
+                for (auto&& p : box.parts)
+                    p.second = tform.get_tform()(p.second);
+                dimg.boxes.push_back(box);
+            }
+            // Put a 64bit hash of the image data into the name to make sure there are no
+            // file name conflicts.
+            std::ostringstream sout;
+            sout << hex << murmur_hash3_128bit(&chip[0][0], chip.size()*sizeof(chip[0][0])).second;
+            dimg.filename = data.images[i].filename + "_RESAMPLED_"+sout.str()+".png";
+
+            if (parser.option("jpg"))
+            {
+                dimg.filename = to_jpg_name(dimg.filename);
+                save_jpeg(chip,dimg.filename, JPEG_QUALITY);
+            }
+            else
+            {
+                save_png(chip,dimg.filename);
+            }
+            resampled_data.images.push_back(dimg);
         }
-        else
-        {
-            save_png(chip,dimg.filename);
-        }
-        resampled_data.images.push_back(dimg);
     }
 
     save_image_dataset_metadata(resampled_data, parser[0] + ".RESAMPLED.xml");
@@ -1160,4 +1181,4 @@ int main(int argc, char** argv)
 }
 
 // ----------------------------------------------------------------------------------------
-
+            const auto max_dim = std::max(rect.width(), rect.height());
