@@ -15,7 +15,6 @@
 #include <sstream>
 #include <iomanip>
 
-
 namespace dlib
 {
 
@@ -310,6 +309,51 @@ namespace dlib
             final_upsampling_amount = upsample_amount;
 
         return test_simple_object_detector_with_images(images, final_upsampling_amount, boxes, ignore, detector);
+    }
+
+// ----------------------------------------------------------------------------------------
+
+    inline void save_multiple_detections_results (
+        const boost::python::list& fods,
+        const boost::python::list& images_paths
+    )
+    {
+        // The output XML file will be located 2 directories up from the images
+        // We assume all images are in the same level of the directory tree
+        std::string output_xml_file_path = boost::python::extract<std::string>(images_paths[0]);
+        output_xml_file_path = output_xml_file_path.substr(0, output_xml_file_path.find_last_of("/\\"));
+        output_xml_file_path = output_xml_file_path.substr(0, output_xml_file_path.find_last_of("/\\") + 1); // + 1 needed to keep the "/"
+        std::string output_xml_filename = "detection_results.xml";
+        output_xml_file_path = output_xml_file_path + output_xml_filename;
+
+        image_dataset_metadata::dataset data;
+        data.name = output_xml_filename;
+
+        for (unsigned int i = 0; i < boost::python::len(images_paths); ++i)
+        {
+            std::string image_path = boost::python::extract<std::string>(images_paths[i]);
+            std::string image_filename = image_path.substr(output_xml_file_path.length() - output_xml_filename.length());
+
+            image_dataset_metadata::image dimg;
+            dimg.filename = image_filename;
+
+            full_object_detection fod = boost::python::extract<full_object_detection>(fods[i]);
+            rectangle rect = fod.get_rect();
+            image_dataset_metadata::box box;
+            box.rect = rect;
+            for (unsigned int j = 0; j < fod.num_parts(); ++j)
+            {
+                std::stringstream ss;
+                ss << std::setw(2) << std::setfill('0') << j;
+                std::string part_name = ss.str();
+                box.parts.insert(std::pair<std::string,point>(part_name, fod.part(j)));
+            }
+            dimg.boxes.push_back(box);
+
+            data.images.push_back(dimg);
+        }
+
+        save_image_dataset_metadata(data, output_xml_file_path);
     }
 
 // ----------------------------------------------------------------------------------------
