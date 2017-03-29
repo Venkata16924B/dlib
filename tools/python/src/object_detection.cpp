@@ -309,11 +309,7 @@ ensures \n\
                  metrics. "
     );
 
-    def("save_detection_results", save_detection_results, (arg("full_object_detection"),arg("image_path")), "Save detection results.");
-
     def("save_multiple_detections_results", save_multiple_detections_results, (arg("full_object_detections"),arg("images_paths")), "Save multiple detections results.");
-
-    def("crop_image", crop_image, (arg("image_path"),arg("output_image_dir")), "Crop image.");
     {
     typedef simple_object_detector type;
     class_<type>("fhog_object_detector",
