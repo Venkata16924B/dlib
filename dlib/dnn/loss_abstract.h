@@ -553,11 +553,40 @@ namespace dlib
                 than get_distance_threshold() distance from each other in the learned
                 embedding.  So this loss function gives you a natural decision boundary for
                 deciding if two objects are from the same class.
+
+                Finally, the loss balances the number of negative pairs relative to the
+                number of positive pairs.  Therefore, if there are N pairs that share the
+                same identity in a mini-batch then the algorithm will only include the N
+                worst non-matching pairs in the loss.  That is, the algorithm performs hard
+                negative mining on the non-matching pairs.  This is important since there
+                are in general way more non-matching pairs than matching pairs.  So to
+                avoid imbalance in the loss this kind of hard negative mining is useful.
         !*/
     public:
 
         typedef unsigned long training_label_type;
         typedef matrix<float,0,1> output_label_type;
+
+        loss_metric_(
+        );
+        /*!
+            ensures
+                - #get_margin() == 0.04
+                - #get_distance_threshold() == 0.6
+        !*/
+
+        loss_metric_(
+            float margin,
+            float dist_thresh
+        );
+        /*!
+            requires
+                - margin > 0
+                - dist_thresh > 0
+            ensures
+                - #get_margin() == margin
+                - #get_distance_threshold() == dist_thresh
+        !*/
 
         template <
             typename SUB_TYPE,
@@ -581,14 +610,14 @@ namespace dlib
             given to this function, one for each sample in the input_tensor.
         !*/
 
-        float get_margin() const { return 0.1; }
+        float get_margin() const; 
         /*!
             ensures
                 - returns the margin value used by the loss function.  See the discussion
                   in WHAT THIS OBJECT REPRESENTS for details.
         !*/
 
-        float get_distance_threshold() const { return 0.75; }
+        float get_distance_threshold() const; 
         /*!
             ensures
                 - returns the distance threshold value used by the loss function.  See the discussion
@@ -684,8 +713,10 @@ namespace dlib
         /*!
             WHAT THIS OBJECT REPRESENTS
                 This object implements the loss layer interface defined above by
-                EXAMPLE_LOSS_LAYER_.  In particular, it implements the mean squared loss, which is
-                appropriate for regression problems.
+                EXAMPLE_LOSS_LAYER_.  In particular, it implements the mean squared loss,
+                which is appropriate for regression problems.  It is basically just like
+                loss_mean_squared_ except that it lets you define multiple outputs instead
+                of just 1.
         !*/
     public:
 

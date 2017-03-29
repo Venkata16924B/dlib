@@ -4,7 +4,7 @@
 #
 
 
-cmake_minimum_required(VERSION 2.8.4)
+cmake_minimum_required(VERSION 2.8.12)
 project(dlib)
 
 # default to a Release build (except if CMAKE_BUILD_TYPE is set)
@@ -13,7 +13,7 @@ include(cmake_utils/use_cpp_11.cmake)
 
 
 set(CPACK_PACKAGE_VERSION_MAJOR "19")
-set(CPACK_PACKAGE_VERSION_MINOR "2")
+set(CPACK_PACKAGE_VERSION_MINOR "4")
 set(CPACK_PACKAGE_VERSION_PATCH "99")
 set(VERSION ${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH})
 # Set DLIB_VERSION in the including CMake file so they can use it to do whatever they want. 
@@ -22,23 +22,10 @@ if(has_parent)
    set(DLIB_VERSION ${VERSION} PARENT_SCOPE)
 endif()
 
-set(dlib_needed_includes)
-# This macro sets include directory paths that are needed by dlib and also by
-# applications that include dlib.  So the main point of this macro is to set
-# dlib_needed_includes which will get pushed into the parent cmake scope at the
-# end of this CMakeLists.txt file.  This way, it is available to users of dlib/cmake.
-macro(add_include_directories dir)
-   include_directories(${dir})
-   set(dlib_needed_includes ${dlib_needed_includes} ${dir})
-endmacro()
-
-# Suppress cmake warnings about changes in new versions.
-if(COMMAND cmake_policy) 
-   cmake_policy(SET CMP0003 NEW) 
-   if (POLICY CMP0054)
-      cmake_policy(SET CMP0054 NEW)
-   endif()
-endif()
+# Set only because there are old target_link_libraries() statements in the
+# FindCUDA.cmake file that comes with CMake that error out if the new behavior
+# is used.
+cmake_policy(SET CMP0023 OLD)
 
 include(cmake_utils/add_global_compiler_switch.cmake)
 
@@ -183,7 +170,7 @@ if (NOT TARGET dlib)
          data_io/mnist.cpp
          dnn/cpu_dlib.cpp
          dnn/tensor_tools.cpp
-	)
+   )
 
 
    if (DLIB_ISO_CPP_ONLY)
@@ -225,6 +212,7 @@ if (NOT TARGET dlib)
          )
 
       set(dlib_needed_libraries)
+      set(dlib_needed_includes)
       if(UNIX)
          set(CMAKE_THREAD_PREFER_PTHREAD ON)
          find_package(Threads REQUIRED)
@@ -243,6 +231,13 @@ if (NOT TARGET dlib)
          if (NOT DLIB_NO_GUI_SUPPORT)
             find_package(X11 QUIET)
             if (X11_FOUND)
+               # If both X11 and anaconda are installed, it's possible for the
+               # anaconda path to appear before /opt/X11, so we remove anaconda.
+               foreach (ITR ${X11_INCLUDE_DIR})
+                  if ("${ITR}" MATCHES "(.*)(ana|mini)conda(.*)")
+                     list (REMOVE_ITEM X11_INCLUDE_DIR ${ITR})
+                  endif ()
+               endforeach(ITR)
                include_directories(${X11_INCLUDE_DIR})
                set (dlib_needed_libraries ${dlib_needed_libraries} ${X11_LIBRARIES})
             else()
@@ -325,7 +320,7 @@ if (NOT TARGET dlib)
       if (DLIB_GIF_SUPPORT)
          find_package(GIF QUIET)
          if (GIF_FOUND)
-            add_include_directories(${GIF_INCLUDE_DIR})
+            set (dlib_needed_includes ${dlib_needed_includes} ${GIF_INCLUDE_DIR})
             set (dlib_needed_libraries ${dlib_needed_libraries} ${GIF_LIBRARY})
          else()
             set(DLIB_GIF_SUPPORT OFF CACHE STRING ${DLIB_GIF_SUPPORT_STR} FORCE )
@@ -492,8 +487,8 @@ if (NOT TARGET dlib)
 
          if (DLIB_USE_MKL_FFT)
             if (found_intel_mkl AND found_intel_mkl_headers)
+               set (dlib_needed_includes ${dlib_needed_includes} ${mkl_include_dir})
                set (dlib_needed_libraries ${dlib_needed_libraries} ${mkl_libraries})
-               add_include_directories(${mkl_include_dir})
             else()
                set(DLIB_USE_MKL_FFT OFF CACHE STRING ${DLIB_USE_MKL_FFT_STR} FORCE )
                toggle_preprocessor_switch(DLIB_USE_MKL_FFT)
@@ -528,7 +523,17 @@ if (NOT TARGET dlib)
             # Note that we add __STRICT_ANSI__ to avoid freaking out nvcc with gcc specific
             # magic in the standard C++ header files (since nvcc uses gcc headers on
             # linux).
-            list(APPEND CUDA_NVCC_FLAGS "-arch=sm_30;-std=c++11;-D__STRICT_ANSI__;-D_MWAITXINTRIN_H_INCLUDED;-D_FORCE_INLINES;${FLAGS_FOR_NVCC}")
+            list(APPEND CUDA_NVCC_FLAGS "-arch=sm_30;-D__STRICT_ANSI__;-D_MWAITXINTRIN_H_INCLUDED;-D_FORCE_INLINES;${FLAGS_FOR_NVCC}")
+            if (NOT MSVC)
+               list(APPEND CUDA_NVCC_FLAGS "-std=c++11")
+            endif()
+            if (CMAKE_POSITION_INDEPENDENT_CODE)
+               # sometimes this setting isn't propagated to NVCC, which then causes the
+               # compile to fail.  So make sure it's propagated.
+               if (NOT MSVC) # Visual studio doesn't have -fPIC so don't do it in that case.
+                  list(APPEND CUDA_NVCC_FLAGS "-Xcompiler -fPIC")
+               endif()
+            endif()
 
             include(cmake_utils/test_for_cudnn/find_cudnn.txt)
 
@@ -540,7 +545,7 @@ if (NOT TARGET dlib)
                                          "-DCMAKE_INCLUDE_PATH=${CMAKE_INCLUDE_PATH}"
                                          "-DCMAKE_LIBRARY_PATH=${CMAKE_LIBRARY_PATH}")
 
-               if (!MSVC) # see https://github.com/davisking/dlib/issues/363
+               if (NOT MSVC) # see https://github.com/davisking/dlib/issues/363
                   list(APPEND CUDA_TEST_CMAKE_FLAGS "-DCUDA_HOST_COMPILER=${CUDA_HOST_COMPILER}")
                endif()
 
@@ -601,7 +606,7 @@ if (NOT TARGET dlib)
          find_path(sqlite_path sqlite3.h)
          if (sqlite AND sqlite_path)
             get_filename_component(sqlite_path2 ${sqlite_path} PATH CACHE)
-            add_include_directories(${sqlite_path2})
+            set(dlib_needed_includes ${dlib_needed_includes} ${sqlite_path2})
             set(dlib_needed_libraries ${dlib_needed_libraries} ${sqlite} )
          else()
             set(DLIB_LINK_WITH_SQLITE3 OFF CACHE STRING ${DLIB_LINK_WITH_SQLITE3_STR} FORCE )
@@ -616,7 +621,7 @@ if (NOT TARGET dlib)
          # make sure fftw3.h is in the include path
          find_path(fftw_path fftw3.h)
          if (fftw AND fftw_path)
-            add_include_directories(${fftw_path})
+            set(dlib_needed_includes ${dlib_needed_includes} ${fftw_path})
             set(dlib_needed_libraries ${dlib_needed_libraries} ${fftw} )
          else()
             set(DLIB_USE_FFTW OFF CACHE STRING ${DLIB_USE_FFTW_STR} FORCE )
@@ -629,11 +634,19 @@ if (NOT TARGET dlib)
 
       # Tell CMake to build dlib via add_library()/cuda_add_library()
       if (DLIB_USE_CUDA)
+         # The old cuda_add_library() command doesn't support CMake's newer dependency
+         # stuff, so we have to set the include path manually still, which we do here.
+         include_directories(${dlib_needed_includes})
          cuda_add_library(dlib STATIC ${source_files} )
       else()
          add_library(dlib STATIC ${source_files} )
       endif()
-      target_link_libraries(dlib ${dlib_needed_libraries} )
+      target_include_directories(dlib
+                                 INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
+                                 INTERFACE $<INSTALL_INTERFACE:include>
+                                 PUBLIC ${dlib_needed_includes}
+                                 )
+      target_link_libraries(dlib PRIVATE ${dlib_needed_libraries})
       if (UNIX AND NOT DLIB_IN_PROJECT_BUILD)
          if (DLIB_USE_CUDA)
             cuda_add_library(dlib_shared SHARED ${source_files} )
@@ -642,7 +655,12 @@ if (NOT TARGET dlib)
             add_library(dlib_shared SHARED ${source_files} )
             add_dependencies(dlib_shared dlib)
          endif()
-         target_link_libraries(dlib_shared ${dlib_needed_libraries} )
+         target_include_directories(dlib_shared
+                                    INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
+                                    INTERFACE $<INSTALL_INTERFACE:include>
+                                    PUBLIC ${dlib_needed_includes}
+                                    )
+         target_link_libraries(dlib_shared PRIVATE ${dlib_needed_libraries})
       endif()
 
    endif ()  ##### end of if NOT DLIB_ISO_CPP_ONLY ##########################################################
@@ -650,6 +668,7 @@ if (NOT TARGET dlib)
    # Allow the unit tests to ask us to compile the all/source.cpp file just to make sure it compiles.
    if (DLIB_TEST_COMPILE_ALL_SOURCE_CPP)
       ADD_LIBRARY(dlib_all_source_cpp STATIC all/source.cpp) 
+      target_link_libraries(dlib_all_source_cpp dlib)
    endif()
 
    # Install the library
@@ -674,7 +693,7 @@ if (NOT TARGET dlib)
        endif()
 
        install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/ DESTINATION include/dlib
-               FILES_MATCHING PATTERN "*.h"
+               FILES_MATCHING PATTERN "*.h" PATTERN "*.cmake"
                REGEX "${CMAKE_CURRENT_BINARY_DIR}" EXCLUDE)
 
 
@@ -719,9 +738,4 @@ if (NOT TARGET dlib)
 
 endif()
 
-
-# put dlib_needed_includes into the parent scope so the dlib/cmake file can use it.
-if(has_parent)
-   set(dlib_needed_includes ${dlib_needed_includes} PARENT_SCOPE)
-endif()
-
+add_library(dlib::dlib ALIAS dlib)
