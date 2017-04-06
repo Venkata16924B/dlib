@@ -568,21 +568,44 @@ if (NOT TARGET dlib)
                   endif()
                endif()
             endif()
-         endif()
 
+            # Find where cuSOLVER is since the FindCUDA cmake package doesn't
+            # bother to look for it.
+            get_filename_component(cuda_blas_path "${CUDA_CUBLAS_LIBRARIES}" DIRECTORY)
+            find_library(cusolver cusolver HINTS ${cuda_blas_path})
+            mark_as_advanced(cusolver)
+            # Also find OpenMP since cuSOLVER needs it.  Importantly, we only
+            # look for one to link to if our use of BLAS, specifically the
+            # Intel MKL, hasn't already decided what to use.  This is because
+            # it makes the MKL bug out if you link to another openmp lib other
+            # than Intel's when you use the MKL.
+            if (NOT openmp_libarires AND NOT MSVC)
+               find_package(OpenMP)
+               if (OPENMP_FOUND)
+                  set(openmp_libarires ${OpenMP_CXX_FLAGS}) 
+               else()
+                  message(STATUS "*** Didn't find OpenMP, which is required to use CUDA. ***")
+                  set(CUDA_FOUND 0)
+               endif()
+            endif()
+         endif()
 
          if (CUDA_FOUND AND cudnn AND cudnn_include AND COMPILER_CAN_DO_CPP_11 AND cuda_test_compile_worked AND cudnn_test_compile_worked)
             set(source_files ${source_files} 
                dnn/cuda_dlib.cu 
                dnn/cudnn_dlibapi.cpp
                dnn/cublas_dlibapi.cpp
+               dnn/cusolver_dlibapi.cu
                dnn/curand_dlibapi.cpp
+               dnn/cuda_data_ptr.cpp
                dnn/gpu_data.cpp
                )
             set(dlib_needed_libraries ${dlib_needed_libraries} 
                                       ${CUDA_CUBLAS_LIBRARIES} 
                                       ${cudnn}
                                       ${CUDA_curand_LIBRARY}
+                                      ${cusolver}
+                                      ${openmp_libarires}
                                       )
             include_directories(${cudnn_include})
          else()
